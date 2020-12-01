@@ -1,0 +1,13 @@
+Processor p = StandardProcessor.of(READER)
+                    .peek(FUNC)
+                    .withTransformation(FUNC, REL)
+                    .withTransformation(FUNC, REL)
+                    .withWriter(WRITER)
+                    .build()
+
+
+Processor p = StandardProcessor.of(PREPARE(PREPARE_FUNC, READER))
+                    .withTransformation(FUNC, REL)
+                    .withTransformation(FUNC, REL)
+                    .withWriter(WRITER)
+                    .build()
