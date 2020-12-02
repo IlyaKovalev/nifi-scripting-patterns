@@ -1,3 +1,4 @@
+import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
@@ -5,16 +6,9 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -26,12 +20,19 @@ public class StandardProcessor<T,M> extends AbstractProcessor {
 	Function<InputStream, Supplier<T>> reader;
 	Function<M, byte[]> writer;
 
+	private List<PropertyDescriptor> propertyDescriptors;
+	private Set<Relationship> relationships;
+	private Relationship defaultRelationship;
+
 	public StandardProcessor(){}
 
 	private StandardProcessor(Builder<T,M> builder){
 		this.transformations = builder.transformations;
 		this.reader = builder.reader;
 		this.writer = builder.writer;
+		this.propertyDescriptors = builder.propertyDescriptors;
+		this.relationships = builder.relationships;
+		this.defaultRelationship = builder.defaultRelationship;
 	}
 
 	protected StandardProcessor(Function<InputStream, Supplier<T>> reader, Function<M, byte[]> writer){
@@ -39,8 +40,14 @@ public class StandardProcessor<T,M> extends AbstractProcessor {
 		this.writer = writer;
 	}
 
-	public static <T,M> StandardProcessor<T,M> of(Function<InputStream, Supplier<T>> reader, Function<M, byte[]> writer){
-		return new StandardProcessor<>();
+	@Override
+	public Set<Relationship> getRelationships() {
+		return relationships;
+	}
+
+	@Override
+	public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
+		return propertyDescriptors;
 	}
 
 	public StandardProcessor withReader(Function<InputStream, Supplier<T>> reader){
@@ -48,13 +55,23 @@ public class StandardProcessor<T,M> extends AbstractProcessor {
 		return this;
 	}
 
+	public String toString(){
+		return "kek";
+	}
+
 	@Override
 	public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
 		LinkedList<FlowFile> flowFiles = new LinkedList<>(session.get(10));
 		List<Pipeline<T,M>> pipelines = transformations.stream()
-				.collect(Collectors.groupingBy(Transformation::getRelationship))
-				.values().stream()
-				.map(transformations -> Pipeline.of(transformations, writer, session.create(), session, getLogger()))
+				.collect(Collectors.groupingBy(transformation->Optional.ofNullable(transformation.getRelationship())))
+				.entrySet().stream()
+				.map(entry -> Pipeline.of(entry.getValue(),
+						writer,
+						session.create(),
+						entry.getKey().or(()->Optional.ofNullable(defaultRelationship)),
+						session,
+						getLogger())
+				)
 				.collect(Collectors.toList());
 
 		flowFiles.forEach(file -> {
@@ -72,24 +89,16 @@ public class StandardProcessor<T,M> extends AbstractProcessor {
 		session.remove(flowFiles);
 	}
 
-/*	public StandardProcessor<T, M> withTransformation(Transformation<T,M> transformation){
-		transformations.add(transformation);
-		return this;
-	}
-
-	public StandardProcessor<T, M> withTransformations(List<Transformation<T,M>> transformations){
-		this.transformations.addAll(transformations);
-		return this;
-	}*/
-
 	public static class Builder<T,M>{
 
-		List<Transformation<T,M>> transformations = new ArrayList<>();
-		Function<InputStream, Supplier<T>> reader;
-		Function<M, byte[]> writer;
+		private List<Transformation<T,M>> transformations = new ArrayList<>();
+		private Function<InputStream, Supplier<T>> reader;
+		private Function<M, byte[]> writer;
+		private List<PropertyDescriptor> propertyDescriptors = new ArrayList<>();
+		private Set<Relationship> relationships = new HashSet<>();
+		private Relationship defaultRelationship;
 
 		public Builder(){}
-
 
 		public Builder(Builder<T,M> builder){
 			this.reader = builder.reader;
@@ -102,6 +111,17 @@ public class StandardProcessor<T,M> extends AbstractProcessor {
 			this.writer = writer;
 		}
 
+		public Builder<T,M> withDescriptor(PropertyDescriptor property){
+			propertyDescriptors.add(property);
+			return this;
+		}
+
+		public Builder<T,M> withDefaultRelationship(Relationship relationship){
+			relationships.add(relationship);
+			this.defaultRelationship = relationship;
+			return this;
+		}
+
 		public <K> Builder<T,K> withWriter(Function<K, byte[]> writer){
 			return new Builder<T,K>(reader, writer);
 		}
@@ -112,6 +132,9 @@ public class StandardProcessor<T,M> extends AbstractProcessor {
 
 		public Builder<T,M> withTransformation(Transformation<T,M> transformation){
 			transformations.add(transformation);
+			if (transformation.getRelationship()!=null){
+				relationships.add(transformation.getRelationship());
+			}
 			return new Builder<>(this);
 		}
 

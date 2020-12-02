@@ -7,8 +7,7 @@ import java.util.function.Function;
 public class Transformation<E,T> {
 
 	private BiFunction<E, Map<String, String>, T> transform;
-	public static Relationship SUCCESS = new Relationship.Builder().name("SUCCESS").build();
-	private Relationship relationship = SUCCESS;
+	private Relationship relationship;
 
 
 	protected Transformation(BiFunction<E, Map<String, String>, T> transform){
